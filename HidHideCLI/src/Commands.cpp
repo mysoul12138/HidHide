@@ -6,6 +6,7 @@
 #include "HID.h"
 #include "Utils.h"
 #include "Volume.h"
+#include "StackRepair.h"
 #include "Logging.h"
 #include <sstream>
 #include <iomanip>
@@ -107,9 +108,11 @@ namespace HidHide
             { L"cloak-state",  { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_CLOAK_STATE),  std::bind(&CommandInterpreter::CloakState,  this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
             { L"cloak-toggle", { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_CLOAK_TOGGLE), std::bind(&CommandInterpreter::CloakToggle, this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
             { L"dev-all",      { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_DEV_ALL),      std::bind(&CommandInterpreter::DevAll,      this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
+            { L"dev-check",    { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_DEV_CHECK),    std::bind(&CommandInterpreter::DevCheck,    this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
             { L"dev-gaming",   { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_DEV_GAMING),   std::bind(&CommandInterpreter::DevGaming,   this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
             { L"dev-hide",     { StringTable(IDS_CLI_SYNTAX_DEV_INST_PATH), StringTable(IDS_CLI_DEV_HIDE),     std::bind(&CommandInterpreter::DevHide,     this, std::placeholders::_1), std::bind(&CommandInterpreter::ValOneDeviceInstancePath, this, std::placeholders::_1) } },
             { L"dev-list",     { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_DEV_LIST),     std::bind(&CommandInterpreter::DevList,     this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
+            { L"dev-repair",   { StringTable(IDS_CLI_SYNTAX_DEV_INST_PATH_OPT), StringTable(IDS_CLI_DEV_REPAIR), std::bind(&CommandInterpreter::DevRepair,   this, std::placeholders::_1), std::bind(&CommandInterpreter::ValZeroOrOneDeviceInstancePath, this, std::placeholders::_1) } },
             { L"dev-unhide",   { StringTable(IDS_CLI_SYNTAX_DEV_INST_PATH), StringTable(IDS_CLI_DEV_UNHIDE),   std::bind(&CommandInterpreter::DevUnhinde,  this, std::placeholders::_1), std::bind(&CommandInterpreter::ValOneDeviceInstancePath, this, std::placeholders::_1) } },
             { L"help",         { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_HELP),         std::bind(&CommandInterpreter::Help,        this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } },
             { L"version",      { StringTable(IDS_CLI_SYNTAX_NO_ARGUMENTS),  StringTable(IDS_CLI_VERSION),      std::bind(&CommandInterpreter::Version,     this, std::placeholders::_1), std::bind(&CommandInterpreter::ValNoArguments, this, std::placeholders::_1) } }
@@ -146,6 +149,15 @@ namespace HidHide
         if (!HidHide::FileIsAnApplication(fullyQualifiedFileName)) return (HidHide::StringTable(IDS_NOT_AN_EXECUTABLE));
         auto const fullImageName{ HidHide::FileNameToFullImageName(fullyQualifiedFileName) };
         if (fullImageName.empty()) return (HidHide::StringTable(IDS_NOT_ON_A_VOLUME));
+        return (std::wstring{});
+    }
+
+    _Use_decl_annotations_
+    std::wstring CommandInterpreter::ValZeroOrOneDeviceInstancePath(Args const& args) const
+    {
+        TRACE_ALWAYS(L"");
+        if (args.size() > 2) return (HidHide::StringTable(IDS_WRONG_NUMBER_OF_ARGUMENTS));
+        if ((2 == args.size()) && (args.at(1).size() > MAX_DEVICE_ID_LEN)) return (HidHide::StringTable(IDS_DEV_INST_PATH_TOO_LONG));
         return (std::wstring{});
     }
 
@@ -261,6 +273,63 @@ namespace HidHide
     {
         TRACE_ALWAYS(L"");
         std::wcout << HidHide::HidDevices(false) << std::endl;
+    }
+
+    _Use_decl_annotations_
+    void CommandInterpreter::DevCheck(Args const&) const
+    {
+        TRACE_ALWAYS(L"");
+        for (auto const& deviceInstancePath : m_FilterDriverProxy.GetBlacklist())
+        {
+            if (HidHide::FilterAttachmentMissing == HidHide::FilterAttachment(deviceInstancePath))
+            {
+                std::wcout << L"--dev-repair \"" << deviceInstancePath << L"\"" << std::endl;
+            }
+        }
+    }
+
+    _Use_decl_annotations_
+    void CommandInterpreter::DevRepair(Args const& args) const
+    {
+        TRACE_ALWAYS(L"");
+
+        // A device instance path was explicitly selected so rebuild that device (also useful to force a running application to release a latched device handle)
+        if (2 == args.size())
+        {
+            try
+            {
+                auto const state{ HidHide::StackRebuild(args.at(1)) };
+                if (HidHide::FilterAttachmentAttached == state) return;
+                std::wcerr << args.at(1) << L" : " << StringTable((HidHide::FilterAttachmentUnknown == state) ? IDS_HID_ATTRIBUTE_ABSENT : IDS_DEV_REPAIR_INCOMPLETE) << std::endl;
+            }
+            catch (std::exception const&)
+            {
+                std::wcerr << args.at(1) << L" : " << StringTable(IDS_DEV_REPAIR_FAILED) << std::endl;
+                LOGEXC_AND_CONTINUE;
+            }
+            return;
+        }
+
+        // Otherwise rebuild all black-listed devices missing the filter driver attachment
+        // A failing device doesn't abort the remainder as the rebuilds are independent
+        for (auto const& deviceInstancePath : m_FilterDriverProxy.GetBlacklist())
+        {
+            if (HidHide::FilterAttachmentMissing != HidHide::FilterAttachment(deviceInstancePath)) continue;
+            std::wcout << L"--dev-repair \"" << deviceInstancePath << L"\"" << std::endl;
+            try
+            {
+                auto const state{ HidHide::StackRebuild(deviceInstancePath) };
+                if (HidHide::FilterAttachmentAttached != state)
+                {
+                    std::wcerr << deviceInstancePath << L" : " << StringTable((HidHide::FilterAttachmentUnknown == state) ? IDS_HID_ATTRIBUTE_ABSENT : IDS_DEV_REPAIR_INCOMPLETE) << std::endl;
+                }
+            }
+            catch (std::exception const&)
+            {
+                std::wcerr << deviceInstancePath << L" : " << StringTable(IDS_DEV_REPAIR_FAILED) << std::endl;
+                LOGEXC_AND_CONTINUE;
+            }
+        }
     }
 
     _Use_decl_annotations_

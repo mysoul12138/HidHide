@@ -82,6 +82,9 @@ namespace HidHide
         // Note that this doesn't imply that the file actually exists; application registration may go in advance of its actual installation
         std::wstring ValOneFullyQualifiedExecutablePath(_In_ Args const& args) const;
 
+        // Validate that there are no arguments or exactly one argument pointing to a device instance path; returns the parsing error message
+        std::wstring ValZeroOrOneDeviceInstancePath(_In_ Args const& args) const;
+
         // Summarizes the commands supported
         void Help(_In_ Args const& args) const;
 
@@ -117,6 +120,12 @@ namespace HidHide
 
         // Lists all HID devices
         void DevAll(_In_ Args const& args) const;
+
+        // Reports black-listed devices missing the filter driver attachment
+        void DevCheck(_In_ Args const& args) const;
+
+        // Rebuilds the driver stack of black-listed devices missing the filter driver attachment
+        void DevRepair(_In_ Args const& args) const;
 
         // Turns device hiding on
         void CloakOn(_In_ Args const& args);

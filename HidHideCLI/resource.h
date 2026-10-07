@@ -40,6 +40,11 @@
 #define IDS_CLI_INFO_OFF                162
 #define IDS_CLI_INV_OFF                 162
 #define IDS_CLI_INV_STATE               163
+#define IDS_CLI_DEV_CHECK               164
+#define IDS_CLI_DEV_REPAIR              165
+#define IDS_CLI_SYNTAX_DEV_INST_PATH_OPT 166
+#define IDS_DEV_REPAIR_FAILED           167
+#define IDS_DEV_REPAIR_INCOMPLETE       168
 #define IDS_PAGE_01                     0x1001
 #define IDS_PAGE_02                     0x1002
 #define IDS_PAGE_03                     0x1003
